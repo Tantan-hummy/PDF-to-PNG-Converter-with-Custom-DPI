@@ -1,0 +1,394 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PDF to PNG Converter (Custom DPI)</title>
+    <!-- 引入 PDF.js 與 JSZip 處理打包下載 -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            background-color: #f5f7fb;
+            color: #333;
+            padding: 40px 20px;
+            margin: 0;
+        }
+        .container {
+            max-width: 850px;
+            margin: 0 auto;
+            background: #fff;
+            padding: 30px;
+            border-radius: 12px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+        }
+        .header-wrapper {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: 25px;
+        }
+        h1 { margin: 0; color: #1e293b; font-size: 24px; }
+        .lang-select {
+            padding: 6px 10px;
+            border-radius: 6px;
+            border: 1px solid #cbd5e1;
+            font-size: 13px;
+        }
+        .control-panel {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+            margin-bottom: 25px;
+            background: #f8fafc;
+            padding: 20px;
+            border-radius: 8px;
+            border: 1px solid #e2e8f0;
+        }
+        .form-group { display: flex; flex-direction: column; gap: 8px; }
+        label { font-weight: 600; color: #475569; font-size: 14px; }
+        input, select {
+            padding: 10px;
+            border: 1px solid #cbd5e1;
+            border-radius: 6px;
+            font-size: 14px;
+            background-color: #fff;
+        }
+        .custom-dpi-container {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-top: 5px;
+        }
+        .custom-dpi-container input { width: 100px; }
+        .btn {
+            grid-column: span 2;
+            background: #2563eb;
+            color: white;
+            border: none;
+            padding: 12px;
+            font-size: 16px;
+            font-weight: 600;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        .btn:hover { background: #1d4ed8; }
+        .btn:disabled { background: #94a3b8; cursor: not-allowed; }
+        #status {
+            margin-top: 15px;
+            font-weight: 500;
+            color: #475569;
+            text-align: center;
+            background: #f1f5f9;
+            padding: 10px;
+            border-radius: 6px;
+        }
+        .preview-container {
+            margin-top: 30px;
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+            gap: 15px;
+        }
+        .preview-box {
+            background: #f1f5f9;
+            padding: 10px;
+            border-radius: 6px;
+            text-align: center;
+            border: 1px solid #e2e8f0;
+        }
+        .preview-box img {
+            max-width: 100%;
+            height: auto;
+            border-radius: 4px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .info { font-size: 12px; color: #64748b; margin-top: 8px; line-height: 1.4; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <div class="header-wrapper">
+        <div>
+            <h1 id="ui-title">PDF 轉自訂 DPI/像素 PNG 工具</h1>
+            <p id="ui-subtitle" style="color: #64748b; margin: 5px 0 0 0;">本地端安全處理，支援輸入任意自訂解析度。</p>
+        </div>
+        <select id="lang-picker" class="lang-select">
+            <option value="zh-TW">繁體中文</option>
+            <option value="zh-CN">简体中文</option>
+            <option value="en">English</option>
+            <option value="ja">日本語</option>
+        </select>
+    </div>
+    
+    <div class="control-panel">
+        <div class="form-group">
+            <label id="ui-label-file" for="pdf-file">1. 選擇 PDF 檔案</label>
+            <input type="file" id="pdf-file" accept=".pdf">
+        </div>
+        
+        <div class="form-group">
+            <label id="ui-label-dpi" for="dpi-preset">2. 輸出 DPI 設定</label>
+            <select id="dpi-preset">
+                <option value="72" id="opt-72">72 DPI</option>
+                <option value="150" id="opt-150">150 DPI</option>
+                <option value="300" id="opt-300" selected>300 DPI</option>
+                <option value="600" id="opt-600">600 DPI</option>
+                <option value="custom" id="opt-custom">✨ 自訂特殊 DPI...</option>
+            </select>
+            
+            <div id="custom-dpi-wrapper" class="custom-dpi-container" style="display: none;">
+                <input type="number" id="custom-dpi-input" value="350" min="10" max="1200" step="1">
+                <span>DPI</span>
+            </div>
+        </div>
+        
+        <button id="convert-btn" class="btn" disabled>開始轉換並打包下載</button>
+    </div>
+
+    <div id="status">請先選擇 PDF 檔案</div>
+    <div id="preview" class="preview-container"></div>
+</div>
+
+<script>
+    // 語系字典
+    const i18n = {
+        'zh-TW': {
+            title: "📄 PDF 轉自訂 DPI/像素 PNG 工具",
+            subtitle: "本地端安全處理，保護隱私，支援輸入任意自訂解析度。",
+            labelFile: "1. 選擇 PDF 檔案",
+            labelDpi: "2. 輸出 DPI 設定",
+            opt72: "72 DPI (螢幕低解析度)",
+            opt150: "150 DPI (中等清晰度)",
+            opt300: "300 DPI (標準印刷/高清)",
+            opt600: "600 DPI (超高解析度)",
+            optCustom: "✨ 自訂特殊 DPI...",
+            btnConvert: "開始轉換並打包下載",
+            statusInit: "請先選擇 PDF 檔案",
+            statusLoading: "正在讀取 PDF 資訊...",
+            statusLoadSuccess: "讀取成功！總共 {pages} 頁。請點擊下方按鈕開始轉換。",
+            statusLoadFail: "PDF 讀取失敗，請確認檔案是否加密或損壞。",
+            statusProcessInit: "準備以 {dpi} DPI 進行轉換（放大倍率：{scale} 倍）...",
+            statusProcessing: "正在轉換第 {current} / {total} 頁 (DPI: {dpi})...",
+            statusZip: "轉換完畢！正在打包成 ZIP 壓縮檔...",
+            statusDone: "轉換完成！已匯出 {dpi} DPI 壓縮包並自動下載。",
+            pageText: "第 {page} 頁"
+        },
+        'zh-CN': {
+            title: "📄 PDF 转自定义 DPI/像素 PNG 工具",
+            subtitle: "本地端安全处理，保护隐私，支持输入任意自定义分辨率。",
+            labelFile: "1. 选择 PDF 文件",
+            labelDpi: "2. 输出 DPI 设置",
+            opt72: "72 DPI (屏幕低分辨率)",
+            opt150: "150 DPI (中等清晰度)",
+            opt300: "300 DPI (标准印刷/高清)",
+            opt600: "600 DPI (超高分辨率)",
+            optCustom: "✨ 自定义特殊 DPI...",
+            btnConvert: "开始转换并打包下载",
+            statusInit: "请先选择 PDF 文件",
+            statusLoading: "正在读取 PDF 信息...",
+            statusLoadSuccess: "读取成功！总共 {pages} 页。请点击下方按钮开始转换。",
+            statusLoadFail: "PDF 读取失败，请确认文件是否加密或损坏。",
+            statusProcessInit: "准备以 {dpi} DPI 进行转换（放大倍率：{scale} 倍）...",
+            statusProcessing: "正在转换第 {current} / {total} 页 (DPI: {dpi})...",
+            statusZip: "转换完毕！正在打包成 ZIP 压缩包...",
+            statusDone: "转换完成！已导出 {dpi} DPI 压缩包并自动下载。",
+            pageText: "第 {page} 页"
+        },
+        'en': {
+            title: "📄 PDF to PNG Converter (Custom DPI)",
+            subtitle: "100% Client-side privacy-focused tool. Supports any custom DPI rendering.",
+            labelFile: "1. Select PDF File",
+            labelDpi: "2. Output DPI Setting",
+            opt72: "72 DPI (Low Res Screen)",
+            opt150: "150 DPI (Medium Quality)",
+            opt300: "300 DPI (Standard Print/HD)",
+            opt600: "600 DPI (Ultra High Res)",
+            optCustom: "✨ Custom Special DPI...",
+            btnConvert: "Convert & Download ZIP",
+            statusInit: "Please select a PDF file first.",
+            statusLoading: "Reading PDF information...",
+            statusLoadSuccess: "Loaded successfully! Total {pages} pages. Click button to convert.",
+            statusLoadFail: "Failed to read PDF. Please check if it's encrypted or corrupted.",
+            statusProcessInit: "Preparing conversion at {dpi} DPI (Scale factor: {scale}x)...",
+            statusProcessing: "Converting page {current} / {total} (DPI: {dpi})...",
+            statusZip: "Conversion complete! Packaging into ZIP archive...",
+            statusDone: "Done! {dpi} DPI ZIP package exported and downloaded.",
+            pageText: "Page {page}"
+        },
+        'ja': {
+            title: "📄 PDFからPNGへの変換ツール (DPIカスタム)",
+            subtitle: "完全ローカル処理で安全。任意のDPIと解像度を指定して高品質に変換できます。",
+            labelFile: "1. PDFファイルを選択",
+            labelDpi: "2. 出力DPI設定",
+            opt72: "72 DPI (画面低解像度)",
+            opt150: "150 DPI (標準画面)",
+            opt300: "300 DPI (高解像度印刷)",
+            opt600: "600 DPI (超高解像度)",
+            optCustom: "✨ カスタムDPIを指定...",
+            btnConvert: "変換を開始してZIPでダウンロード",
+            statusInit: "PDFファイルを選択してください。",
+            statusLoading: "PDF情報を読み込んでいます...",
+            statusLoadSuccess: "読み込み成功！全 {pages} ページ。下のボタンを押して変換を開始します。",
+            statusLoadFail: "PDFの読み込みに失敗しました。暗号化や破損がないか確認してください。",
+            statusProcessInit: "{dpi} DPI での変換を準備中（拡大倍率：{scale} 倍）...",
+            statusProcessing: "ページ {current} / {total} を変換中 (DPI: {dpi})...",
+            statusZip: "変換完了！ZIPアーカイブにパッケージ中...",
+            statusDone: "完了しました！{dpi} DPI のZIPファイルが自動ダウンロードされました。",
+            pageText: "ページ {page}"
+        }
+    };
+
+    let currentLang = 'en';
+    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
+    const langPicker = document.getElementById('lang-picker');
+    const fileInput = document.getElementById('pdf-file');
+    const dpiPreset = document.getElementById('dpi-preset');
+    const customDpiWrapper = document.getElementById('custom-dpi-wrapper');
+    const customDpiInput = document.getElementById('custom-dpi-input');
+    const convertBtn = document.getElementById('convert-btn');
+    const statusDiv = document.getElementById('status');
+    const previewDiv = document.getElementById('preview');
+
+    let pdfDoc = null;
+
+    // 更新介面文字
+    function updateUI(lang) {
+        currentLang = i18n[lang] ? lang : 'en';
+        langPicker.value = currentLang;
+        
+        const t = i18n[currentLang];
+        document.getElementById('ui-title').innerText = t.title;
+        document.getElementById('ui-subtitle').innerText = t.subtitle;
+        document.getElementById('ui-label-file').innerText = t.labelFile;
+        document.getElementById('ui-label-dpi').innerText = t.labelDpi;
+        document.getElementById('opt-72').innerText = t.opt72;
+        document.getElementById('opt-150').innerText = t.opt150;
+        document.getElementById('opt-300').innerText = t.opt300;
+        document.getElementById('opt-600').innerText = t.opt600;
+        document.getElementById('opt-custom').innerText = t.optCustom;
+        convertBtn.innerText = t.btnConvert;
+        
+        if (!pdfDoc) {
+            statusDiv.innerText = t.statusInit;
+        } else {
+            statusDiv.innerText = t.statusLoadSuccess.replace('{pages}', pdfDoc.numPages);
+        }
+    }
+
+    // 自動偵測語系
+    function detectLanguage() {
+        const navLang = navigator.language || navigator.userLanguage;
+        if (navLang.startsWith('zh-CN') || navLang === 'zh-SG') return 'zh-CN';
+        if (navLang.startsWith('zh')) return 'zh-TW';
+        if (navLang.startsWith('ja')) return 'ja';
+        return 'en';
+    }
+
+    langPicker.addEventListener('change', (e) => updateUI(e.target.value));
+    updateUI(detectLanguage());
+
+    dpiPreset.addEventListener('change', () => {
+        customDpiWrapper.style.display = dpiPreset.value === 'custom' ? 'flex' : 'none';
+    });
+
+    function getTargetDPI() {
+        if (dpiPreset.value === 'custom') {
+            const val = parseInt(customDpiInput.value);
+            return isNaN(val) || val <= 0 ? 300 : val;
+        }
+        return parseInt(dpiPreset.value);
+    }
+
+    fileInput.addEventListener('change', async (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+
+        statusDiv.innerText = i18n[currentLang].statusLoading;
+        convertBtn.disabled = true;
+        previewDiv.innerHTML = "";
+
+        const fileReader = new FileReader();
+        fileReader.onload = async function() {
+            const typedarray = new Uint8Array(this.result);
+            try {
+                pdfDoc = await pdfjsLib.getDocument(typedarray).promise;
+                statusDiv.innerText = i18n[currentLang].statusLoadSuccess.replace('{pages}', pdfDoc.numPages);
+                convertBtn.disabled = false;
+            } catch (error) {
+                statusDiv.innerText = i18n[currentLang].statusLoadFail;
+                console.error(error);
+            }
+        };
+        fileReader.readAsArrayBuffer(file);
+    });
+
+    convertBtn.addEventListener('click', async () => {
+        if (!pdfDoc) return;
+
+        convertBtn.disabled = true;
+        previewDiv.innerHTML = "";
+        
+        const dpi = getTargetDPI();
+        const scale = dpi / 72;
+        const zip = new JSZip();
+        const t = i18n[currentLang];
+        
+        statusDiv.innerText = t.statusProcessInit.replace('{dpi}', dpi).replace('{scale}', scale.toFixed(2));
+
+        for (let i = 1; i <= pdfDoc.numPages; i++) {
+            statusDiv.innerText = t.statusProcessing.replace('{current}', i).replace('{total}', pdfDoc.numPages).replace('{dpi}', dpi);
+            
+            const page = await pdfDoc.getPage(i);
+            const viewport = page.getViewport({ scale: scale });
+
+            const canvas = document.createElement('canvas');
+            const context = canvas.getContext('2d');
+            canvas.width = Math.round(viewport.width);
+            canvas.height = Math.round(viewport.height);
+
+            const renderContext = { canvasContext: context, viewport: viewport };
+
+            try {
+                await page.render(renderContext).promise;
+                const imgDataUrl = canvas.toDataURL('image/png');
+                
+                const box = document.createElement('div');
+                box.className = 'preview-box';
+                
+                const img = document.createElement('img');
+                img.src = imgDataUrl;
+                
+                const info = document.createElement('div');
+                info.className = 'info';
+                info.innerHTML = `<strong>${t.pageText.replace('{page}', i)}</strong><br>${canvas.width} x ${canvas.height} px`;
+                
+                box.appendChild(img);
+                box.appendChild(info);
+                previewDiv.appendChild(box);
+
+                const base64Data = imgDataUrl.replace(/^data:image\/(png|jpg);base64,/, "");
+                zip.file(`page_${String(i).padStart(3, '0')}.png`, base64Data, {base64: true});
+            } catch (renderError) {
+                console.error(`Page ${i} render failed:`, renderError);
+            }
+        }
+
+        statusDiv.innerText = t.statusZip;
+        
+        const content = await zip.generateAsync({type: "blob"});
+        const downloadLink = document.createElement('a');
+        downloadLink.href = URL.createObjectURL(content);
+        downloadLink.download = `${fileInput.files[0].name.replace('.pdf', '')}_${dpi}dpi.zip`;
+        downloadLink.click();
+
+        statusDiv.innerText = t.statusDone.replace('{dpi}', dpi);
+        convertBtn.disabled = false;
+    });
+</script>
+
+</body>
+</html>
