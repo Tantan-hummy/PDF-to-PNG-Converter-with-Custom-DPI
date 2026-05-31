@@ -174,6 +174,8 @@
             statusProcessing: "正在轉換第 {current} / {total} 頁 (DPI: {dpi})...",
             statusZip: "轉換完畢！正在打包成 ZIP 壓縮檔...",
             statusDone: "轉換完成！已匯出 {dpi} DPI 壓縮包並自動下載。",
+            statusStopped: "已停止轉換。",
+            btnStop: "停止轉換",
             pageText: "第 {page} 頁"
         },
         'zh-CN': {
@@ -195,6 +197,8 @@
             statusProcessing: "正在转换第 {current} / {total} 页 (DPI: {dpi})...",
             statusZip: "转换完毕！正在打包成 ZIP 压缩包...",
             statusDone: "转换完成！已导出 {dpi} DPI 压缩包并自动下载。",
+            statusStopped: "已停止转换。",
+            btnStop: "停止转换",
             pageText: "第 {page} 页"
         },
         'en': {
@@ -216,6 +220,8 @@
             statusProcessing: "Converting page {current} / {total} (DPI: {dpi})...",
             statusZip: "Conversion complete! Packaging into ZIP archive...",
             statusDone: "Done! {dpi} DPI ZIP package exported and downloaded.",
+            statusStopped: "Conversion stopped.",
+            btnStop: "Stop Conversion",
             pageText: "Page {page}"
         },
         'ja': {
@@ -237,6 +243,8 @@
             statusProcessing: "ページ {current} / {total} を変換中 (DPI: {dpi})...",
             statusZip: "変換完了！ZIPアーカイブにパッケージ中...",
             statusDone: "完了しました！{dpi} DPI のZIPファイルが自動ダウンロードされました。",
+            statusStopped: "変換を中止しました。",
+            btnStop: "変換を中止",
             pageText: "ページ {page}"
         }
     };
@@ -254,6 +262,8 @@
     const previewDiv = document.getElementById('preview');
 
     let pdfDoc = null;
+    let isConverting = false;
+    let shouldStop = false;
 
     // 更新介面文字
     function updateUI(lang) {
@@ -329,7 +339,15 @@
     convertBtn.addEventListener('click', async () => {
         if (!pdfDoc) return;
 
-        convertBtn.disabled = true;
+        // 如果正在轉換，則停止
+        if (isConverting) {
+            shouldStop = true;
+            return;
+        }
+
+        isConverting = true;
+        shouldStop = false;
+        convertBtn.disabled = false; // 允許點擊停止
         previewDiv.innerHTML = "";
         
         const dpi = getTargetDPI();
@@ -338,8 +356,19 @@
         const t = i18n[currentLang];
         
         statusDiv.innerText = t.statusProcessInit.replace('{dpi}', dpi).replace('{scale}', scale.toFixed(2));
+        convertBtn.innerText = t.btnStop; // 改為停止按鈕
 
         for (let i = 1; i <= pdfDoc.numPages; i++) {
+            // 檢查是否需要停止
+            if (shouldStop) {
+                statusDiv.innerText = t.statusStopped;
+                convertBtn.innerText = t.btnConvert;
+                convertBtn.disabled = false;
+                isConverting = false;
+                shouldStop = false;
+                return;
+            }
+
             statusDiv.innerText = t.statusProcessing.replace('{current}', i).replace('{total}', pdfDoc.numPages).replace('{dpi}', dpi);
             
             const page = await pdfDoc.getPage(i);
@@ -377,6 +406,16 @@
             }
         }
 
+        // 檢查最後一次是否被停止
+        if (shouldStop) {
+            statusDiv.innerText = t.statusStopped;
+            convertBtn.innerText = t.btnConvert;
+            convertBtn.disabled = false;
+            isConverting = false;
+            shouldStop = false;
+            return;
+        }
+
         statusDiv.innerText = t.statusZip;
         
         const content = await zip.generateAsync({type: "blob"});
@@ -386,7 +425,10 @@
         downloadLink.click();
 
         statusDiv.innerText = t.statusDone.replace('{dpi}', dpi);
+        convertBtn.innerText = t.btnConvert;
         convertBtn.disabled = false;
+        isConverting = false;
+        shouldStop = false;
     });
 </script>
 
